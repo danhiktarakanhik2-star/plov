@@ -1,0 +1,14 @@
+{
+    "_comment": "Пример кастомных цветов крови. Ключ - часть модели или класса (lowercase), значение - RGB. Помести этот файл в garrysmod/data/realistic_blood_custom.json и включи rb_custom_config 1",
+    "combine": {"r":20,"g":20,"b":20},
+    "metropolice": {"r":20,"g":20,"b":20},
+    "robot": {"r":15,"g":15,"b":15},
+    "zombie": {"r":80,"g":100,"b":20},
+    "fastzombie": {"r":90,"g":110,"b":30},
+    "antlion": {"r":60,"g":200,"b":20},
+    "headcrab": {"r":180,"g":120,"b":10},
+    "vortigaunt": {"r":70,"g":180,"b":90},
+    "hunter": {"r":25,"g":25,"b":25},
+    "strider": {"r":30,"g":30,"b":30},
+    "custom_npc_example": {"r":255,"g":0,"b":255}
+}
