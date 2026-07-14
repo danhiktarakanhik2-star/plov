@@ -334,7 +334,9 @@ function RB.CreatePuddle(pos, normal, maxSize, growthDuration, colorOverride)
         pos=pos, normal=normal, maxSize=maxSize or 80, currentSize=5,
         startTime=CurTime(), growthDuration=growthDuration or 12,
         dieTime=CurTime()+(cfg.decalLifetime or 300)+100,
-        alpha=255, rotation=math_random(0,360), subPuddles={}, mat=mat, color=col
+        alpha=255, rotation=math_random(0,360), subPuddles={}, mat=mat, color=col,
+        -- v1.3: сохраняем рандомные деформации при создании (не каждый кадр!)
+        sizeMultX = math_Rand(0.85, 1.15), sizeMultY = math_Rand(0.85, 1.15)
     }
     local subCount=math_random(7,12) -- v1.3: больше подлуж для неровных краёв
     for i=1,subCount do
@@ -344,7 +346,7 @@ function RB.CreatePuddle(pos, normal, maxSize, growthDuration, colorOverride)
         -- v1.3: Некоторые подлужи длиннее (имитация течения крови к низшей точке)
         local stretch = math_Rand(0.3, 0.7)
         if math_random() < 0.3 then stretch = math_Rand(0.7, 1.2) end -- растекшиеся
-        table.insert(puddle.subPuddles,{offset=offset,size=math_Rand(maxSize*stretch*0.3,maxSize*stretch*0.7),rotation=math_random(0,360)})
+        table.insert(puddle.subPuddles,{offset=offset,size=math_Rand(maxSize*stretch*0.3,maxSize*stretch*0.7),rotation=math_random(0,360),sizeMultX=math_Rand(0.8,1.2),sizeMultY=math_Rand(0.8,1.2)})
     end
     table.insert(RB.Puddles,puddle)
     for _,sub in ipairs(puddle.subPuddles) do
@@ -380,16 +382,16 @@ hook.Add("PostDrawTranslucentRenderables","RB_RenderPuddles",function()
         end
         local col=Color(c.r,c.g,c.b,alpha)
         render.SetMaterial(pud.mat)
-        -- v1.3: Основная лужа рисуется как овал (разные X/Y размеры) для более естественной формы
-        local sizeX = pud.currentSize * math_Rand(0.85, 1.15)
-        local sizeY = pud.currentSize * math_Rand(0.85, 1.15)
+        -- v1.3: Овальная форма из сохранённого рандома (не мерцает)
+        local sizeX = pud.currentSize * (pud.sizeMultX or 1)
+        local sizeY = pud.currentSize * (pud.sizeMultY or 1)
         render.DrawQuadEasy(pud.pos, pud.normal, sizeX, sizeY, col, pud.rotation)
         for _,sub in ipairs(pud.subPuddles) do
             local subSize=sub.size*prog
             local subPos=pud.pos+sub.offset*prog
-            -- v1.3: Подлужи тоже овальные, не квадратные
-            local subSizeX = subSize * math_Rand(0.8, 1.2)
-            local subSizeY = subSize * math_Rand(0.8, 1.2)
+            -- v1.3: Подлужи тоже овальные из сохранённого рандома
+            local subSizeX = subSize * (sub.sizeMultX or 1)
+            local subSizeY = subSize * (sub.sizeMultY or 1)
             render.DrawQuadEasy(subPos, pud.normal, subSizeX, subSizeY, col, sub.rotation)
         end
     end
@@ -777,7 +779,18 @@ function RB.AddScreenBlood(intensity, duration, isPlayerDamage)
     if cfg.quality==0 and not isPlayerDamage then return end
     if isPlayerDamage then
         RB.DamageOverlayAlpha=math_Clamp(RB.DamageOverlayAlpha+intensity*120,0,255)
-        table.insert(RB.ScreenBloodGroups,{intensity=intensity,dieTime=CurTime()+duration,isDamage=true,x=math_random(0,1),y=math_random(0,1),size=math_Rand(0.2,0.5),rotation=math_random(0,360)})
+        -- v1.3: сохраняем рандомные параметры потёков чтобы не мерцали
+        local streaks = {}
+        local w,h = ScrW(), ScrH()
+        local streakCount = math_Clamp(math.floor(intensity * 120 / 30), 1, 5)
+        for s=1,streakCount do
+            streaks[s] = {
+                x = math_Rand(0.05, 0.95) * w,
+                len = math_Rand(0.1, 0.4) * h * math_Clamp(intensity * 120 / 180, 0.2, 1),
+                width = math_random(2, 8)
+            }
+        end
+        table.insert(RB.ScreenBloodGroups,{intensity=intensity,dieTime=CurTime()+duration,isDamage=true,x=math_random(0,1),y=math_random(0,1),size=math_Rand(0.2,0.5),rotation=math_random(0,360),streaks=streaks})
     else
         if cfg.goreLevel<3 then return end
         for i=1,math_random(3,6) do table.insert(RB.ScreenBloodGroups,{intensity=intensity,dieTime=CurTime()+duration+math_Rand(0,1),isDamage=false,x=math_Rand(0,1),y=math_Rand(0,1),size=math_Rand(0.15,0.4),rotation=math_random(0,360),mat=RB.LoadedDecalMats[math_random(1,#RB.LoadedDecalMats)]}) end
@@ -792,23 +805,31 @@ hook.Add("HUDPaint","RB_ScreenBloodHUD",function()
         local w,h=ScrW(),ScrH() local alpha=math_Clamp(RB.DamageOverlayAlpha,0,180) local col=Color(cfg.colorR,cfg.colorG,cfg.colorB,alpha*0.6)
         surface.SetDrawColor(col.r,col.g,col.b,alpha*0.5)
         surface.DrawRect(0,0,w,h*0.08) surface.DrawRect(0,h*0.92,w,h*0.08) surface.DrawRect(0,0,w*0.06,h) surface.DrawRect(w*0.94,0,w*0.06,h)
-        -- v1.3: Кровавые потёки на экране — вертикальные полосы сверху
+        -- v1.3: Кровавые потёки на экране — из сохранённых данных (не мерцают)
         if cfg.goreLevel>=2 and alpha > 30 then
-            local streakCount = math_Clamp(math.floor(alpha / 30), 1, 5)
-            for s=1,streakCount do
-                local sx = math_Rand(0.05, 0.95) * w
-                local streakLen = math_Rand(0.1, 0.4) * h * (alpha / 180)
-                surface.SetDrawColor(col.r,col.g,col.b,alpha*0.3)
-                -- Тонкая полоса (имитация потёка)
-                local streakW = math_Rand(2, 8)
-                surface.DrawRect(sx - streakW/2, 0, streakW, streakLen)
-                -- Капля на конце потёка
-                surface.DrawRect(sx - 3, streakLen, 6, 6)
+            -- Ищем активный damage-эффект с потёками
+            for gi=#RB.ScreenBloodGroups,1,-1 do
+                local grp = RB.ScreenBloodGroups[gi]
+                if grp and grp.isDamage and grp.streaks then
+                    for _,st in ipairs(grp.streaks) do
+                        surface.SetDrawColor(col.r,col.g,col.b,alpha*0.3)
+                        surface.DrawRect(st.x - st.width/2, 0, st.width, st.len)
+                        surface.DrawRect(st.x - 3, st.len, 6, 6)
+                    end
+                    break -- рисуем потёки только от последнего попадания
+                end
             end
         end
         if cfg.goreLevel>=2 then
             surface.SetMaterial(RB.ScreenBloodMat) surface.SetDrawColor(col.r,col.g,col.b,alpha)
-            for i=1,3 do local size=w*0.15 surface.DrawTexturedRectRotated(w*0.03,h*(0.2+i*0.2),size,size,math_random(0,360)) surface.DrawTexturedRectRotated(w*0.97,h*(0.15+i*0.22),size,size,math_random(0,360)) end
+            -- v1.3: фиксированные углы (сохраняем при первом вызове)
+            if not RB._screenDecalRotations then
+                RB._screenDecalRotations = {}
+                for i=1,3 do
+                    RB._screenDecalRotations[i] = {l=math_random(0,360), r=math_random(0,360)}
+                end
+            end
+            for i=1,3 do local size=w*0.15 surface.DrawTexturedRectRotated(w*0.03,h*(0.2+i*0.2),size,size,RB._screenDecalRotations[i].l) surface.DrawTexturedRectRotated(w*0.97,h*(0.15+i*0.22),size,size,RB._screenDecalRotations[i].r) end
         end
     end
     if cfg.goreLevel>=3 and #RB.ScreenBloodGroups>0 then
