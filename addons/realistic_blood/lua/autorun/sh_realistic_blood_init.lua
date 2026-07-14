@@ -17,7 +17,7 @@
 --]]
 
 RB = RB or {}
-RB.Version = "1.2.0 MEGA (35+ settings)"
+RB.Version = "1.3.0 REALISTIC (50+ settings)"
 
 local function RB_Log(msg) print("[Realistic Blood] " .. msg) end
 
@@ -127,6 +127,10 @@ if SERVER then
     util.AddNetworkString("RB_Dismember")
     util.AddNetworkString("RB_StainPlayer")
     util.AddNetworkString("RB_SplatterNearby")
+    util.AddNetworkString("RB_WoundDrip")       -- новые: капли с ран
+    util.AddNetworkString("RB_BloodStream")      -- новые: струйки по стенам
+    util.AddNetworkString("RB_ImpactCascade")    -- новые: каскад при ударе о поверхность
+    util.AddNetworkString("RB_DeathBloodFlow")   -- новые: кровотечение после смерти
 
     RB_Log("ConVars v1.2 (40+) и net зарегистрированы")
 else
@@ -167,7 +171,7 @@ RB.HitGroupNames = {
 ------------------------------------------------------------
 -- 4. ТЕКСТУРЫ
 ------------------------------------------------------------
-RB.ParticleMaterials = {"effects/blood_core","effects/blood_drop","effects/blood2","effects/blood","particle/blood/blood-1","particle/blood/blood-2","effects/blood3","decals/blood1"}
+RB.ParticleMaterials = {"effects/blood_core","effects/blood2","decals/blood1","decals/blood2","decals/blood3","decals/blood4","decals/blood5","decals/blood6","decals/blood7","decals/blood8"}
 RB.DecalMaterials = {"Blood","ManhackCut","Impact.Blood","Flesh","Blood1","Blood2","Blood3","Gunshot","PaintBall","Dark"}
 RB.FloorDecalTypes = {"Blood","Blood1","ManhackCut"}
 RB.WallDecalTypes = {"Blood","Impact.Blood","ManhackCut","Flesh"}

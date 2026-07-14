@@ -19,7 +19,7 @@ timer.Create("RB_UpdateCache", 0.5, 0, UpdateCache)
 UpdateCache()
 
 RB.LoadedParticleMats = {}
-local _rb_safeMats = {"effects/blood_core","effects/blood2","effects/blood","decals/blood1","decals/blood2","decals/blood3","decals/blood4","decals/blood5","decals/blood6","decals/blood7","decals/blood8"}
+local _rb_safeMats = {"effects/blood_core","effects/blood2","decals/blood1","decals/blood2","decals/blood3","decals/blood4","decals/blood5","decals/blood6","decals/blood7","decals/blood8"}
 for _,p in ipairs(_rb_safeMats) do local m=Material(p) if m and not m:IsError() then table.insert(RB.LoadedParticleMats,m) end end
 if #RB.LoadedParticleMats==0 then table.insert(RB.LoadedParticleMats,Material("effects/blood_core")) end
 
@@ -32,42 +32,21 @@ RB.RobotOilMaterial = nil
 RB.ZombieMaterial = nil
 RB.AlienMaterial = nil
 local function CreateMats()
-    -- UnlitGeneric для плоских квадов — VertexLitGeneric даёт чёрно-фиолетовые артефакты без света
-    local bloodBaseTex = "effects/blood_core"
-    local testMat = Material("models/flesh")
-    if not testMat:IsError() then bloodBaseTex = "models/flesh" end
+    -- НЕ используем CreateMaterial — оно даёт шахматку в GMod.
+    -- Используем готовые декали которые гарантированно существуют.
+    -- Цвет задаётся через vertex color в DrawQuadEasy, материал только текстура.
+    RB.PuddleMaterial = Material("decals/blood1")
+    if RB.PuddleMaterial:IsError() then RB.PuddleMaterial = Material("effects/blood2") end
+    if RB.PuddleMaterial:IsError() then RB.PuddleMaterial = Material("effects/blood_core") end
 
-    RB.PuddleMaterial = CreateMaterial("rb_puddle_v12_ul","UnlitGeneric",{
-        ["$basetexture"]=bloodBaseTex,
-        ["$translucent"]="1",
-        ["$vertexalpha"]="1",
-        ["$vertexcolor"]="1"
-    })
-    if RB.PuddleMaterial:IsError() then RB.PuddleMaterial=Material("effects/blood_core") end
+    RB.RobotOilMaterial = Material("decals/blood1")
+    if RB.RobotOilMaterial:IsError() then RB.RobotOilMaterial = Material("effects/blood2") end
 
-    RB.RobotOilMaterial = CreateMaterial("rb_robot_oil_v12_ul","UnlitGeneric",{
-        ["$basetexture"]="effects/blood_core",
-        ["$translucent"]="1",
-        ["$vertexalpha"]="1",
-        ["$vertexcolor"]="1"
-    })
-    if RB.RobotOilMaterial:IsError() then RB.RobotOilMaterial=Material("effects/blood_core") end
+    RB.ZombieMaterial = Material("decals/blood2")
+    if RB.ZombieMaterial:IsError() then RB.ZombieMaterial = Material("decals/blood1") end
 
-    RB.ZombieMaterial = CreateMaterial("rb_zombie_v12_ul","UnlitGeneric",{
-        ["$basetexture"]="effects/blood_core",
-        ["$translucent"]="1",
-        ["$vertexalpha"]="1",
-        ["$vertexcolor"]="1"
-    })
-    if RB.ZombieMaterial:IsError() then RB.ZombieMaterial=Material("effects/blood_core") end
-
-    RB.AlienMaterial = CreateMaterial("rb_alien_v12_ul","UnlitGeneric",{
-        ["$basetexture"]="effects/blood_core",
-        ["$translucent"]="1",
-        ["$vertexalpha"]="1",
-        ["$vertexcolor"]="1"
-    })
-    if RB.AlienMaterial:IsError() then RB.AlienMaterial=Material("effects/blood_core") end
+    RB.AlienMaterial = Material("decals/blood3")
+    if RB.AlienMaterial:IsError() then RB.AlienMaterial = Material("decals/blood1") end
 end
 CreateMats()
 
@@ -256,7 +235,13 @@ function RB.SpawnDecalFromParticle(hitPos, hitNormal, pSize, vel, bloodColor)
     local mat=RB.LoadedDecalMats[math_random(1,#RB.LoadedDecalMats)]
     local col=bloodColor or Color(cfg.colorR,cfg.colorG,cfg.colorB)
     RB.AddDecal(hitPos, hitNormal, size, mat, isFloor, 255, col)
-    if not isFloor and cfg.wallDrips and hitNormal.z<0.5 and hitNormal.z>-0.5 then if math_random()<0.35 then RB.CreateWallDrip(hitPos, hitNormal, size, col) end end
+    if not isFloor and cfg.wallDrips and hitNormal.z<0.5 and hitNormal.z>-0.5 then
+        if math_random()<0.35 then RB.CreateWallDrip(hitPos, hitNormal, size, col) end
+        -- Струйка по стене при сильном ударе (кровь с силой бьётся о стену)
+        if speed > 200 and math_random() < 0.25 then
+            RB.CreateBloodStream(hitPos, hitNormal, size * 0.5, col)
+        end
+    end
     if isFloor and math_random()<0.08 then RB.PlayDripSound(hitPos) end
 end
 
@@ -351,12 +336,15 @@ function RB.CreatePuddle(pos, normal, maxSize, growthDuration, colorOverride)
         dieTime=CurTime()+(cfg.decalLifetime or 300)+100,
         alpha=255, rotation=math_random(0,360), subPuddles={}, mat=mat, color=col
     }
-    local subCount=math_random(5,8)
+    local subCount=math_random(7,12) -- v1.3: больше подлуж для неровных краёв
     for i=1,subCount do
-        local ang=(i/subCount)*360+math_random(-15,15)
-        local dist=math_Rand(maxSize*0.2,maxSize*0.6)
+        local ang=(i/subCount)*360+math_random(-25,25) -- v1.3: больше вариации углов
+        local dist=math_Rand(maxSize*0.15,maxSize*0.7) -- v1.3: больше вариации расстояний
         local offset=Vector(math.cos(math.rad(ang))*dist, math.sin(math.rad(ang))*dist,0)
-        table.insert(puddle.subPuddles,{offset=offset,size=math_Rand(maxSize*0.3,maxSize*0.7),rotation=math_random(0,360)})
+        -- v1.3: Некоторые подлужи длиннее (имитация течения крови к низшей точке)
+        local stretch = math_Rand(0.3, 0.7)
+        if math_random() < 0.3 then stretch = math_Rand(0.7, 1.2) end -- растекшиеся
+        table.insert(puddle.subPuddles,{offset=offset,size=math_Rand(maxSize*stretch*0.3,maxSize*stretch*0.7),rotation=math_random(0,360)})
     end
     table.insert(RB.Puddles,puddle)
     for _,sub in ipairs(puddle.subPuddles) do
@@ -392,10 +380,17 @@ hook.Add("PostDrawTranslucentRenderables","RB_RenderPuddles",function()
         end
         local col=Color(c.r,c.g,c.b,alpha)
         render.SetMaterial(pud.mat)
-        render.DrawQuadEasy(pud.pos, pud.normal, pud.currentSize, pud.currentSize, col, pud.rotation)
+        -- v1.3: Основная лужа рисуется как овал (разные X/Y размеры) для более естественной формы
+        local sizeX = pud.currentSize * math_Rand(0.85, 1.15)
+        local sizeY = pud.currentSize * math_Rand(0.85, 1.15)
+        render.DrawQuadEasy(pud.pos, pud.normal, sizeX, sizeY, col, pud.rotation)
         for _,sub in ipairs(pud.subPuddles) do
-            local subSize=sub.size*prog local subPos=pud.pos+sub.offset*prog
-            render.DrawQuadEasy(subPos, pud.normal, subSize, subSize, col, sub.rotation)
+            local subSize=sub.size*prog
+            local subPos=pud.pos+sub.offset*prog
+            -- v1.3: Подлужи тоже овальные, не квадратные
+            local subSizeX = subSize * math_Rand(0.8, 1.2)
+            local subSizeY = subSize * math_Rand(0.8, 1.2)
+            render.DrawQuadEasy(subPos, pud.normal, subSizeX, subSizeY, col, sub.rotation)
         end
     end
 end)
@@ -451,7 +446,43 @@ function RB.CreateBloodSplash(pos, dir, normal, damage, wType, hitgroup, baseCol
             if isLarge and not isRobot then col.r=math_Clamp(col.r*0.8,0,255) col.g=math_Clamp(col.g*0.8,0,255) col.b=math_Clamp(col.b*0.8,0,255) end
             par:SetColor(col.r,col.g,col.b) par:SetCollide(true) par:SetBounce(0.1)
             local sizeForDecal=pSize*3 local colForDecal=baseColor
-            par:SetCollideCallback(function(part, hitPos, hitNormal) RB.SpawnDecalFromParticle(hitPos, hitNormal, sizeForDecal, part:GetVelocity(), colForDecal) part:SetDieTime(0) end)
+            par:SetCollideCallback(function(part, hitPos, hitNormal)
+                RB.SpawnDecalFromParticle(hitPos, hitNormal, sizeForDecal, part:GetVelocity(), colForDecal)
+                -- Каскад при ударе о поверхность (реалистичные вторичные брызги)
+                if pSize > 3 and math_random() < 0.4 then
+                    RB.CreateImpactCascade(hitPos, hitNormal, sizeForDecal, colForDecal)
+                end
+                part:SetDieTime(0)
+            end)
+
+            -- Спутниковые капли — мелкие капли летящие рядом с основной (реалистичный разлёт)
+            if pSize > 2 and math_random() < 0.5 then
+                local satCount = math_random(1, 3)
+                for s = 1, satCount do
+                    local satMat = RB.LoadedParticleMats[math_random(1, #RB.LoadedParticleMats)]
+                    local satPar = emitter:Add(satMat, origin)
+                    if satPar then
+                        local satVel = velDir * speed * math_Rand(0.3, 0.7) + VectorRand() * spread * speed * 0.5
+                        satPar:SetVelocity(satVel)
+                        satPar:SetDieTime(life * math_Rand(0.5, 0.9))
+                        satPar:SetLifeTime(0)
+                        satPar:SetStartAlpha(220)
+                        satPar:SetEndAlpha(0)
+                        satPar:SetStartSize(pSize * math_Rand(0.15, 0.4)) -- мелкие
+                        satPar:SetEndSize(pSize * 0.1)
+                        satPar:SetGravity(Vector(0, 0, math_Rand(-600, -400)))
+                        satPar:SetAirResistance(math_Rand(10, 40))
+                        satPar:SetCollide(true)
+                        satPar:SetBounce(0.05)
+                        local satCol = RB.GetRandomBloodColor(baseColor)
+                        satPar:SetColor(satCol.r, satCol.g, satCol.b)
+                        satPar:SetCollideCallback(function(p, hp, hn)
+                            RB.SpawnDecalFromParticle(hp, hn, pSize * 0.5, p:GetVelocity(), satCol)
+                            p:SetDieTime(0)
+                        end)
+                    end
+                end
+            end
         end
     end
     if profile.delayed then timer.Simple(math_Rand(0.05,0.15),function() if IsValid(emitter) then SpawnBatch(pos, dir, final,false) end end) else SpawnBatch(pos, dir, final,false) end
@@ -469,6 +500,120 @@ function RB.CreateBloodSplash(pos, dir, normal, damage, wType, hitgroup, baseCol
     end
     if isHeadshot or hitgroup==HITGROUP_HEAD then RB.CreateBloodMist(pos, dir, baseColor, final) end
     if wType=="explosive" and cfg.goreLevel>=3 then RB.CreateBloodMist(pos, VectorRand():GetNormalized(), baseColor, final*1.5,true) end
+
+    -- ХИТГРУПП-СПЕЦИФИЧНЫЕ ЭФФЕКТЫ (реалистичность)
+    -- Грудь/Живот: струя крови из раны + возможный выходной след
+    if hitgroup==HITGROUP_CHEST or hitgroup==HITGROUP_STOMACH then
+        -- Струя крови в направлении выстрела (exit wound effect)
+        if damage > 30 then
+            local exitEmitter = GetEmitter(pos + dir * 10)
+            if exitEmitter then
+                for i = 1, math.floor(damage / 10) do
+                    local mat = RB.LoadedParticleMats[math_random(1, #RB.LoadedParticleMats)]
+                    local par = exitEmitter:Add(mat, pos + dir * math_Rand(5, 15))
+                    if par then
+                        local exitDir = (dir + VectorRand() * 0.4):GetNormalized()
+                        par:SetVelocity(exitDir * math_Rand(100, 300))
+                        par:SetDieTime(math_Rand(0.5, 1.2))
+                        par:SetLifeTime(0)
+                        par:SetStartAlpha(240)
+                        par:SetEndAlpha(0)
+                        par:SetStartSize(math_Rand(2, 5))
+                        par:SetEndSize(math_Rand(1, 3))
+                        par:SetGravity(Vector(0, 0, math_Rand(-500, -300)))
+                        par:SetAirResistance(math_Rand(20, 50))
+                        par:SetCollide(true)
+                        par:SetBounce(0.05)
+                        local col = RB.GetRandomBloodColor(baseColor)
+                        par:SetColor(col.r, col.g, col.b)
+                        par:SetCollideCallback(function(p, hp, hn)
+                            RB.SpawnDecalFromParticle(hp, hn, 4, p:GetVelocity(), baseColor)
+                            p:SetDieTime(0)
+                        end)
+                    end
+                end
+                timer.Simple(1.3, function() ReleaseEmitter(exitEmitter) end)
+            end
+        end
+        -- Кровь стекает по стене если рядом
+        local wallCheck = util.TraceLine({start=pos, endpos=pos + normal * 30, mask=MASK_SOLID})
+        if wallCheck.Hit and wallCheck.HitNormal.z < 0.5 and cfg.wallDrips then
+            RB.CreateBloodStream(wallCheck.HitPos, wallCheck.HitNormal, damage / 15, baseColor)
+        end
+    end
+
+    -- Конечности (руки/ноги): кровь стекает вниз по конечности, мелкие капли
+    if hitgroup==HITGROUP_LEFTARM or hitgroup==HITGROUP_RIGHTARM or hitgroup==HITGROUP_LEFTLEG or hitgroup==HITGROUP_RIGHTLEG then
+        -- Мелкие капли стекающие вниз
+        local limbEmitter = GetEmitter(pos)
+        if limbEmitter then
+            for i = 1, math_random(3, 6) do
+                local delay = i * math_Rand(0.1, 0.3)
+                timer.Simple(delay, function()
+                    if not limbEmitter then return end
+                    local mat = RB.LoadedParticleMats[math_random(1, #RB.LoadedParticleMats)]
+                    local dripPos = pos + VectorRand() * 3 + Vector(0, 0, -i * 5)
+                    local par = limbEmitter:Add(mat, dripPos)
+                    if par then
+                        par:SetVelocity(Vector(0, 0, math_Rand(-50, -120)) + VectorRand() * 5)
+                        par:SetDieTime(math_Rand(0.3, 0.7))
+                        par:SetLifeTime(0)
+                        par:SetStartAlpha(220)
+                        par:SetEndAlpha(150)
+                        par:SetStartSize(math_Rand(1, 3))
+                        par:SetEndSize(math_Rand(0.5, 1.5))
+                        par:SetGravity(Vector(0, 0, math_Rand(-500, -700)))
+                        par:SetAirResistance(math_Rand(5, 15))
+                        par:SetCollide(true)
+                        par:SetBounce(0)
+                        local col = RB.GetRandomBloodColor(baseColor)
+                        par:SetColor(col.r, col.g, col.b)
+                        par:SetCollideCallback(function(p, hp, hn)
+                            RB.SpawnDecalFromParticle(hp, hn, 3, p:GetVelocity(), baseColor)
+                            p:SetDieTime(0)
+                        end)
+                    end
+                end)
+            end
+            timer.Simple(2.5, function() ReleaseEmitter(limbEmitter) end)
+        end
+    end
+
+    -- Шея: артериальный фонтан даже от среднего урона
+    if hitgroup == HITGROUP_HEAD and damage > 40 and cfg.arterial then
+        -- Дополнительная струя вверх
+        local neckEmitter = GetEmitter(pos)
+        if neckEmitter then
+            for i = 1, 6 do
+                local mat = RB.LoadedParticleMats[math_random(1, #RB.LoadedParticleMats)]
+                local par = neckEmitter:Add(mat, pos)
+                if par then
+                    local sprayDir = Vector(0, 0, 1) + VectorRand() * 0.4
+                    par:SetVelocity(sprayDir * math_Rand(120, 280))
+                    par:SetDieTime(math_Rand(0.4, 0.9))
+                    par:SetLifeTime(0)
+                    par:SetStartAlpha(240)
+                    par:SetEndAlpha(0)
+                    par:SetStartSize(math_Rand(1.5, 4))
+                    par:SetEndSize(math_Rand(0.5, 2))
+                    par:SetGravity(Vector(0, 0, math_Rand(-400, -600)))
+                    par:SetAirResistance(math_Rand(10, 30))
+                    par:SetCollide(true)
+                    par:SetBounce(0)
+                    -- Артериальная кровь — ярко-алая
+                    local col = RB.GetRandomBloodColor(baseColor)
+                    col.r = math_Clamp(col.r + 40, 0, 255)
+                    col.g = math_Clamp(col.g - 15, 0, 255)
+                    par:SetColor(col.r, col.g, col.b)
+                    par:SetCollideCallback(function(p, hp, hn)
+                        RB.SpawnDecalFromParticle(hp, hn, 3, p:GetVelocity(), col)
+                        p:SetDieTime(0)
+                    end)
+                end
+            end
+            timer.Simple(1.0, function() ReleaseEmitter(neckEmitter) end)
+        end
+    end
     timer.Simple(0.6,function() ReleaseEmitter(emitter) end)
     if isRobot then RB.PlayRobotSound(pos) else RB.PlayFleshSound(pos, isCritical) end
 end
@@ -488,28 +633,88 @@ function RB.CreateBloodMist(pos, dir, baseColor, refCount, isExplosion)
     timer.Simple(1.6,function() ReleaseEmitter(emitter) end)
 end
 
--- Артериальный фонтан (пульсирующий)
+-- Артериальный фонтан (пульсирующий) - v1.3 УЛУЧШЕННЫЙ
 function RB.CreateArterialSpray(ent, pos, hitgroup)
     local cfg=RB.ClientConfigCache if not cfg.arterial or cfg.quality==0 then return end
     if not IsValid(ent) then return end
     local baseColor = RB.GetBloodColorForEntity(ent,false)
+    if ent.RB_BloodColor then baseColor = ent.RB_BloodColor end
     if cfg.lowViolence then return end
-    -- Пульс каждые arterialInterval
+
     local emitter=GetEmitter(pos) if not emitter then return end
-    for i=1,8 do
-        local mat=RB.LoadedParticleMats[1] local par=emitter:Add(mat, pos)
+
+    -- Артериальное давление: первый выброс самый мощный, дальше пульсирует
+    local isPulse = RB._arterialPulseCount or 0
+    RB._arterialPulseCount = (isPulse + 1) % 6
+    local pulseMult = isPulse == 0 and 1.5 or (1.0 - isPulse * 0.1) -- первый толчок мощнее
+    pulseMult = math.max(pulseMult, 0.4)
+
+    -- Широкий веер (arc) — кровь фонтанирует не строго вверх, а веером
+    local baseDir = Vector(0, 0, 1)
+    -- Легкий наклон в сторону движения цели
+    local entVel = ent:GetVelocity()
+    if entVel:Length() > 10 then baseDir = baseDir + entVel:GetNormalized() * 0.2 baseDir:Normalize() end
+
+    local sprayCount = math.floor(10 * pulseMult)
+    for i = 1, sprayCount do
+        local mat = RB.LoadedParticleMats[math_random(1, #RB.LoadedParticleMats)]
+        local par = emitter:Add(mat, pos + VectorRand() * 2)
         if par then
-            local dir=Vector(0,0,1) + VectorRand()*0.3
-            par:SetVelocity(dir*math_Rand(150,350))
-            par:SetDieTime(math_Rand(0.5,1.0)) par:SetStartAlpha(220) par:SetEndAlpha(0)
-            par:SetStartSize(math_Rand(2,5)) par:SetEndSize(math_Rand(1,3))
-            par:SetGravity(Vector(0,0,-400)) par:SetAirResistance(10)
-            par:SetColor(baseColor.r,baseColor.g,baseColor.b)
-            par:SetCollide(true) par:SetBounce(0) 
-            par:SetCollideCallback(function(p,hp,hn) RB.SpawnDecalFromParticle(hp,hn,6,p:GetVelocity(),baseColor) p:SetDieTime(0) end)
+            -- Веерный разлёт
+            local dir = baseDir + VectorRand() * 0.5
+            dir:Normalize()
+            local speed = math_Rand(100, 350) * pulseMult
+
+            par:SetVelocity(dir * speed)
+            par:SetDieTime(math_Rand(0.4, 1.0))
+            par:SetLifeTime(0)
+            par:SetStartAlpha(230)
+            par:SetEndAlpha(0)
+            par:SetStartSize(math_Rand(1.5, 5) * pulseMult)
+            par:SetEndSize(math_Rand(0.5, 2))
+            par:SetGravity(Vector(0, 0, math_Rand(-500, -350)))
+            par:SetAirResistance(math_Rand(10, 30))
+            par:SetRoll(math_Rand(0, 360))
+            par:SetRollDelta(math_Rand(-3, 3))
+            par:SetCollide(true)
+            par:SetBounce(0)
+
+            -- Артериальная кровь — ярко-алая
+            local col = RB.GetRandomBloodColor(baseColor)
+            col.r = math_Clamp(col.r + 35, 0, 255)
+            col.g = math_Clamp(col.g - 15, 0, 255)
+            col.b = math_Clamp(col.b - 5, 0, 255)
+            par:SetColor(col.r, col.g, col.b)
+
+            par:SetCollideCallback(function(p, hp, hn)
+                RB.SpawnDecalFromParticle(hp, hn, 5, p:GetVelocity(), col)
+                -- Каскад при ударе о поверхность
+                if math_random() < 0.35 then RB.CreateImpactCascade(hp, hn, 3, col) end
+                p:SetDieTime(0)
+            end)
         end
     end
-    timer.Simple(1.1,function() ReleaseEmitter(emitter) end)
+
+    -- Мелкий туман вокруг фонтана (взвесь крови в воздухе)
+    for i = 1, math.floor(4 * pulseMult) do
+        local mat = RB.LoadedParticleMats[math_random(1, #RB.LoadedParticleMats)]
+        local par = emitter:Add(mat, pos + VectorRand() * 5)
+        if par then
+            par:SetVelocity(VectorRand() * math_Rand(30, 80))
+            par:SetDieTime(math_Rand(0.5, 1.2))
+            par:SetLifeTime(0)
+            par:SetStartAlpha(math_Rand(60, 100))
+            par:SetEndAlpha(0)
+            par:SetStartSize(math_Rand(4, 10))
+            par:SetEndSize(math_Rand(12, 20))
+            par:SetGravity(Vector(0, 0, math_Rand(-20, 20)))
+            par:SetAirResistance(math_Rand(150, 250))
+            local col = RB.GetRandomBloodColor(baseColor)
+            par:SetColor(col.r, col.g, col.b)
+        end
+    end
+
+    timer.Simple(1.2, function() ReleaseEmitter(emitter) end)
 end
 
 ------------------------------------------------------------
@@ -587,6 +792,20 @@ hook.Add("HUDPaint","RB_ScreenBloodHUD",function()
         local w,h=ScrW(),ScrH() local alpha=math_Clamp(RB.DamageOverlayAlpha,0,180) local col=Color(cfg.colorR,cfg.colorG,cfg.colorB,alpha*0.6)
         surface.SetDrawColor(col.r,col.g,col.b,alpha*0.5)
         surface.DrawRect(0,0,w,h*0.08) surface.DrawRect(0,h*0.92,w,h*0.08) surface.DrawRect(0,0,w*0.06,h) surface.DrawRect(w*0.94,0,w*0.06,h)
+        -- v1.3: Кровавые потёки на экране — вертикальные полосы сверху
+        if cfg.goreLevel>=2 and alpha > 30 then
+            local streakCount = math_Clamp(math.floor(alpha / 30), 1, 5)
+            for s=1,streakCount do
+                local sx = math_Rand(0.05, 0.95) * w
+                local streakLen = math_Rand(0.1, 0.4) * h * (alpha / 180)
+                surface.SetDrawColor(col.r,col.g,col.b,alpha*0.3)
+                -- Тонкая полоса (имитация потёка)
+                local streakW = math_Rand(2, 8)
+                surface.DrawRect(sx - streakW/2, 0, streakW, streakLen)
+                -- Капля на конце потёка
+                surface.DrawRect(sx - 3, streakLen, 6, 6)
+            end
+        end
         if cfg.goreLevel>=2 then
             surface.SetMaterial(RB.ScreenBloodMat) surface.SetDrawColor(col.r,col.g,col.b,alpha)
             for i=1,3 do local size=w*0.15 surface.DrawTexturedRectRotated(w*0.03,h*(0.2+i*0.2),size,size,math_random(0,360)) surface.DrawTexturedRectRotated(w*0.97,h*(0.15+i*0.22),size,size,math_random(0,360)) end
@@ -616,18 +835,248 @@ hook.Add("HUDPaint","RB_ScreenBloodHUD",function()
         end
     end
 
-    -- Wound HUD
+    -- Wound HUD (v1.3: показываем количество и тяжесть ран)
     if cfg.woundSystem then
-        -- можно показать кол-во ран? Упрощённо в углу
         local ply=LocalPlayer()
-        if IsValid(ply) then
-            -- информацию о ранах получаем с сервера через NW? Пока не реализуем NW, просто покажем иконку если кровотечение
-            if RB.Bleeding then
-                draw.SimpleText("КРОВОТЕЧЕНИЕ! /rb_bandage", "DermaLarge", ScrW()*0.5, ScrH()*0.8, Color(255,0,0,200), TEXT_ALIGN_CENTER)
-            end
+        if IsValid(ply) and RB.Bleeding then
+            local w,h = ScrW(), ScrH()
+            -- Пульсирующая надпись "КРОВОТЕЧЕНИЕ"
+            local pulse = math.sin(CurTime() * 4) * 0.3 + 0.7 -- пульсация
+            local textColor = Color(255, 0, 0, 200 * pulse)
+            draw.SimpleText("КРОВОТЕЧЕНИЕ! /rb_bandage", "DermaLarge", w*0.5, h*0.82, textColor, TEXT_ALIGN_CENTER)
+            -- Капля крови — иконка пульсирующая
+            local dropAlpha = 150 * pulse
+            surface.SetDrawColor(200, 0, 0, dropAlpha)
+            local dropX = w*0.5 - 120
+            local dropY = h*0.82 + 5
+            -- Рисуем каплю (круг + треугольник)
+            surface.DrawRect(dropX - 4, dropY, 8, 8)
+            surface.DrawRect(dropX - 3, dropY - 3, 6, 6)
+            surface.DrawRect(dropX - 2, dropY - 5, 4, 4)
         end
     end
 end)
+
+------------------------------------------------------------
+-- v1.3 РЕАЛИСТИЧНОСТЬ: Кровотечение из ран, струйки, каскады
+------------------------------------------------------------
+
+-- Позиции ран на модели (локальные смещения от ног по хитгруппам)
+RB.WoundBodyOffsets = {
+    [HITGROUP_HEAD]     = Vector(0, 0, 68),   -- голова
+    [HITGROUP_CHEST]    = Vector(0, 0, 48),   -- грудь
+    [HITGROUP_STOMACH]  = Vector(0, 0, 32),   -- живот
+    [HITGROUP_LEFTARM]  = Vector(-12, 0, 45), -- левая рука
+    [HITGROUP_RIGHTARM] = Vector(12, 0, 45),  -- правая рука
+    [HITGROUP_LEFTLEG]  = Vector(-6, 0, 18),  -- левая нога
+    [HITGROUP_RIGHTLEG] = Vector(6, 0, 18),   -- правая нога
+}
+
+-- Система капель с ран на модели
+RB.WoundDrips = RB.WoundDrips or {} -- {[ent] = {nextDrip, hitgroup, severity, isArtery}}
+
+function RB.CreateWoundDrip(ent, hitgroup, severity, isArtery)
+    if not IsValid(ent) then return end
+    local cfg = RB.ClientConfigCache if not cfg.enabled or cfg.lowViolence then return end
+    local pos = ent:GetPos()
+    if not RB.IsPointVisible(pos) then return end
+
+    local offset = RB.WoundBodyOffsets[hitgroup] or Vector(0,0,40)
+    local worldPos = pos + offset + VectorRand() * 3
+
+    local emitter = GetEmitter(worldPos)
+    if not emitter then return end
+
+    local baseColor = RB.GetBloodColorForEntity and RB.GetBloodColorForEntity(ent, false) or Color(cfg.colorR, cfg.colorG, cfg.colorB)
+    if ent.RB_BloodColor then baseColor = ent.RB_BloodColor end
+
+    -- Артериальное кровотечение — ярче, быстрее
+    local dripCount = math.floor(severity * (isArtery and 4 or 2))
+    dripCount = math_Clamp(dripCount, 1, 8)
+
+    for i = 1, dripCount do
+        local mat = RB.LoadedParticleMats[math_random(1, #RB.LoadedParticleMats)]
+        local par = emitter:Add(mat, worldPos + VectorRand() * 2)
+        if par then
+            -- Капля падает вниз под действием гравитации
+            local vel = VectorRand() * 8
+            vel.z = math_Rand(-30, -80) -- падение вниз
+            if isArtery then vel.z = math_Rand(-60, -150) end -- артериальное — быстрее
+            par:SetVelocity(vel)
+            par:SetDieTime(math_Rand(0.4, 1.0))
+            par:SetLifeTime(0)
+            par:SetStartAlpha(230)
+            par:SetEndAlpha(180)
+            par:SetStartSize(math_Rand(1, isArtery and 4 or 3))
+            par:SetEndSize(math_Rand(0.5, 1.5))
+            par:SetGravity(Vector(0, 0, math_Rand(-600, -400)))
+            par:SetAirResistance(math_Rand(5, 15))
+            par:SetRoll(math_Rand(0, 360))
+            par:SetCollide(true)
+            par:SetBounce(0)
+
+            local col = RB.GetRandomBloodColor(baseColor)
+            -- Артериальная кровь ярче (алая)
+            if isArtery then
+                col.r = math_Clamp(col.r + 30, 0, 255)
+                col.g = math_Clamp(col.g - 10, 0, 255)
+            end
+            par:SetColor(col.r, col.g, col.b)
+
+            local dripSize = math_Rand(2, 5)
+            par:SetCollideCallback(function(part, hitPos, hitNormal)
+                RB.SpawnDecalFromParticle(hitPos, hitNormal, dripSize, part:GetVelocity(), col)
+                part:SetDieTime(0)
+            end)
+        end
+    end
+    timer.Simple(1.1, function() ReleaseEmitter(emitter) end)
+end
+
+-- Система струек крови по стенам (когда кровь попадает на вертикальную поверхность)
+function RB.CreateBloodStream(pos, normal, size, bloodColor)
+    local cfg = RB.ClientConfigCache
+    if not cfg.enabled or cfg.lowViolence then return end
+    if not cfg.wallDrips then return end
+
+    local emitter = GetEmitter(pos)
+    if not emitter then return end
+
+    -- Кровь стекает по стене вниз — длинная струйка
+    local streamLength = math_random(3, 8)
+    for i = 1, streamLength do
+        local delay = i * math_Rand(0.15, 0.35)
+        timer.Simple(delay, function()
+            if not emitter then return end
+            local mat = RB.LoadedParticleMats[math_random(1, #RB.LoadedParticleMats)]
+            local downOffset = Vector(0, 0, -(i * math_Rand(5, 12)))
+            local lateralDrift = VectorRand() * 1.5
+            lateralDrift.z = 0
+            local dripPos = pos + downOffset + lateralDrift
+
+            local par = emitter:Add(mat, dripPos)
+            if par then
+                par:SetVelocity(Vector(0, 0, math_Rand(-20, -60)) + VectorRand() * 3)
+                par:SetDieTime(math_Rand(0.3, 0.8))
+                par:SetLifeTime(0)
+                par:SetStartAlpha(200 - i * 15)
+                par:SetEndAlpha(0)
+                par:SetStartSize(size * (1 - i * 0.1))
+                par:SetEndSize(size * 0.3)
+                par:SetGravity(Vector(0, 0, math_Rand(-300, -500)))
+                par:SetAirResistance(math_Rand(10, 30))
+                par:SetColor(bloodColor.r, bloodColor.g, bloodColor.b)
+                par:SetCollide(true)
+                par:SetBounce(0)
+                par:SetCollideCallback(function(part, hitPos, hitNormal)
+                    RB.SpawnDecalFromParticle(hitPos, hitNormal, size * 0.5, part:GetVelocity(), bloodColor)
+                    part:SetDieTime(0)
+                end)
+            end
+        end)
+    end
+    timer.Simple(streamLength * 0.4 + 1.0, function() ReleaseEmitter(emitter) end)
+end
+
+-- Каскад при ударе крови о поверхность — вторичные мелкие брызги
+function RB.CreateImpactCascade(hitPos, hitNormal, size, bloodColor)
+    local cfg = RB.ClientConfigCache
+    if not cfg.enabled or cfg.lowViolence then return end
+
+    local emitter = GetEmitter(hitPos)
+    if not emitter then return end
+
+    -- Вторичные мелкие капли — "корона" вокруг точки удара
+    local cascadeCount = math_random(3, 8)
+    for i = 1, cascadeCount do
+        local mat = RB.LoadedParticleMats[math_random(1, #RB.LoadedParticleMats)]
+        -- Капли разлетаются от нормали поверхности
+        local spreadDir = hitNormal + VectorRand() * 0.8
+        spreadDir:Normalize()
+
+        local par = emitter:Add(mat, hitPos + hitNormal * 2)
+        if par then
+            local speed = math_Rand(30, 100)
+            par:SetVelocity(spreadDir * speed)
+            par:SetDieTime(math_Rand(0.3, 0.9))
+            par:SetLifeTime(0)
+            par:SetStartAlpha(180)
+            par:SetEndAlpha(0)
+            par:SetStartSize(math_Rand(0.5, 2)) -- мелкие капли
+            par:SetEndSize(math_Rand(0.3, 1))
+            par:SetGravity(Vector(0, 0, math_Rand(-400, -600)))
+            par:SetAirResistance(math_Rand(10, 30))
+            par:SetCollide(true)
+            par:SetBounce(0.05)
+
+            local col = RB.GetRandomBloodColor(bloodColor)
+            par:SetColor(col.r, col.g, col.b)
+
+            par:SetCollideCallback(function(part, hp, hn)
+                RB.SpawnDecalFromParticle(hp, hn, math_Rand(1, 3), part:GetVelocity(), bloodColor)
+                part:SetDieTime(0)
+            end)
+        end
+    end
+    timer.Simple(1.0, function() ReleaseEmitter(emitter) end)
+end
+
+-- Кровотечение из трупа после смерти (клиентская часть)
+function RB.CreateDeathBloodFlow(ent, pos, bloodColor)
+    if not IsValid(ent) then return end
+    local cfg = RB.ClientConfigCache if not cfg.enabled then return end
+
+    -- Периодические капли из трупа в течение ~15 секунд
+    local flowDuration = 15
+    local interval = 0.3
+    local startTime = CurTime()
+
+    local function FlowTick()
+        if CurTime() - startTime > flowDuration then return end
+        if not IsValid(ent) then return end
+
+        local bodyPos = ent:GetPos() + Vector(0, 0, math_Rand(5, 25))
+        local emitter = GetEmitter(bodyPos)
+        if not emitter then return end
+
+        -- 2-4 капли за тик
+        for i = 1, math_random(2, 4) do
+            local mat = RB.LoadedParticleMats[math_random(1, #RB.LoadedParticleMats)]
+            local par = emitter:Add(mat, bodyPos + VectorRand() * 5)
+            if par then
+                par:SetVelocity(VectorRand() * 10 + Vector(0, 0, math_Rand(-40, -100)))
+                par:SetDieTime(math_Rand(0.3, 0.8))
+                par:SetLifeTime(0)
+                par:SetStartAlpha(200)
+                par:SetEndAlpha(120)
+                par:SetStartSize(math_Rand(1, 3))
+                par:SetEndSize(math_Rand(0.5, 1.5))
+                par:SetGravity(Vector(0, 0, math_Rand(-500, -700)))
+                par:SetAirResistance(math_Rand(5, 15))
+                par:SetCollide(true)
+                par:SetBounce(0)
+
+                local col = RB.GetRandomBloodColor(bloodColor)
+                -- Кровь со временем темнеет
+                local age = CurTime() - startTime
+                local darkMult = math_Clamp(1 - age / flowDuration * 0.3, 0.7, 1)
+                col.r = math.floor(col.r * darkMult)
+                col.g = math.floor(col.g * darkMult)
+                col.b = math.floor(col.b * darkMult)
+                par:SetColor(col.r, col.g, col.b)
+
+                par:SetCollideCallback(function(part, hp, hn)
+                    RB.SpawnDecalFromParticle(hp, hn, math_Rand(2, 5), part:GetVelocity(), col)
+                    part:SetDieTime(0)
+                end)
+            end
+        end
+        timer.Simple(interval, FlowTick)
+        timer.Simple(1.1, function() ReleaseEmitter(emitter) end)
+    end
+
+    FlowTick()
+end
 
 ------------------------------------------------------------
 -- NET
@@ -746,6 +1195,37 @@ net.Receive("RB_StainPlayer",function()
     end
 end)
 
+-- НОВОЕ: Капли с ран на модели (от сервера)
+net.Receive("RB_WoundDrip", function()
+    local ent = net.ReadEntity()
+    local hitgroup = net.ReadUInt(8)
+    local severity = net.ReadFloat()
+    local isArtery = net.ReadBool()
+    RB.CreateWoundDrip(ent, hitgroup, severity, isArtery)
+    -- Если артерия — создаём дополнительную струйку по ближайшей стене
+    if isArtery and IsValid(ent) then
+        local pos = ent:GetPos() + (RB.WoundBodyOffsets[hitgroup] or Vector(0,0,40))
+        local tr = util.TraceLine({start=pos, endpos=pos + Vector(0,0,-5), mask=MASK_SOLID})
+        if not tr.Hit then
+            -- Ищем стену рядом
+            local wallTr = util.TraceLine({start=pos, endpos=pos + VectorRand() * 30, mask=MASK_SOLID})
+            if wallTr.Hit and wallTr.HitNormal.z < 0.5 then
+                local cfg = RB.ClientConfigCache
+                local col = RB.GetBloodColorForEntity and RB.GetBloodColorForEntity(ent, false) or Color(cfg.colorR, cfg.colorG, cfg.colorB)
+                RB.CreateBloodStream(wallTr.HitPos, wallTr.HitNormal, severity * 3, col)
+            end
+        end
+    end
+end)
+
+-- НОВОЕ: Кровотечение из трупа после смерти
+net.Receive("RB_DeathBloodFlow", function()
+    local ent = net.ReadEntity()
+    local pos = net.ReadVector()
+    local r = net.ReadUInt(8) local g = net.ReadUInt(8) local b = net.ReadUInt(8)
+    RB.CreateDeathBloodFlow(ent, pos, Color(r, g, b))
+end)
+
 ------------------------------------------------------------
 -- МЕНЮ v1.2 MEGA с категориями
 ------------------------------------------------------------
@@ -858,4 +1338,4 @@ concommand.Add("rb_stats",function()
     print("Arterial:"..tostring(cfg.arterial).." Dismember:"..tostring(cfg.dismember).." DynamicQ:"..tostring(cfg.dynamicQuality))
 end)
 
-print("[Realistic Blood] Client v1.2 MEGA загружен - 40+ настроек")
+print("[Realistic Blood] Client v1.3 REALISTIC загружен - 50+ настроек, реалистичное кровотечение")

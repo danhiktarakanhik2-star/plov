@@ -286,7 +286,7 @@ hook.Add("Think","RB_BleedingThink",function()
     local cfg=RB.GetConfig()
     if not cfg.enabled then return end
 
-    -- Раненые следы
+    -- Раненые следы (v1.3: движение ускоряет кровотечение)
     if cfg.trailsEnabled then
         for ent,data in pairs(RB.BleedingEntities) do
             if not IsValid(ent) then RB.BleedingEntities[ent]=nil continue end
@@ -295,8 +295,13 @@ hook.Add("Think","RB_BleedingThink",function()
             if ent.Health then hpP=ent:Health()/(ent:GetMaxHealth() or 100) else hpP=data.healthPercent or 0.5 end
             if hpP>0.65 and CurTime()-data.startTime>15 then RB.BleedingEntities[ent]=nil continue end
             local vel=ent:GetVelocity():Length()
-            if vel<40 then continue end
-            local interval=math_Clamp(0.3+hpP*1.2,0.1,1.5)
+            -- Стоячий раненый тоже теряет кровь (капает под ноги), но медленнее
+            local moveMult = 1.0
+            if vel < 20 then moveMult = 0.15  -- стоит на месте
+            elseif vel < 100 then moveMult = 0.5 -- идёт
+            elseif vel < 200 then moveMult = 0.8 -- бежит
+            else moveMult = 1.2 end -- спринт
+            local interval=math_Clamp((0.3+hpP*1.2) / moveMult, 0.08, 2.0)
             if CurTime()-data.lastTrailTime<interval then continue end
             data.lastTrailTime=CurTime() data.healthPercent=hpP
             local pos=ent:GetPos()+Vector(0,0,5)
@@ -306,6 +311,12 @@ hook.Add("Think","RB_BleedingThink",function()
                 for _,ply in ipairs(player.GetAll()) do if ply:GetPos():DistToSqr(tr.HitPos)<16000000 then table.insert(rec,ply) end end
                 if #rec==0 then continue end
                 net.Start("RB_BloodTrail") net.WriteVector(tr.HitPos+tr.HitNormal*0.5) net.WriteVector(tr.HitNormal) net.WriteFloat(1-hpP) net.WriteEntity(ent) net.Send(rec)
+                -- v1.3: Стоячий раненый игрок оставляет лужу под ногами
+                if vel < 20 and not data._lastPuddleCheck or (CurTime() - (data._lastPuddleCheck or 0)) > 8 then
+                    data._lastPuddleCheck = CurTime()
+                    local col = RB.GetBloodColorForEntity(ent, false)
+                    HandleEntityDeath(ent, tr.HitPos, true) -- лужа под ногами
+                end
             end
         end
     end
@@ -317,12 +328,28 @@ hook.Add("Think","RB_BleedingThink",function()
             for idx,w in ipairs(wounds) do
                 if CurTime()>w.dieTime then table.remove(wounds,idx) continue end
                 -- Обычное кровотечение из раны
-                if CurTime()-w.lastBleed > (w.isArtery and cfg.arterialInterval or 2.0) then
+                local bleedInterval = w.isArtery and cfg.arterialInterval or 2.0
+                -- Движение ускоряет кровотечение
+                local vel = ent:GetVelocity():Length()
+                if vel > 100 then bleedInterval = bleedInterval * 0.5
+                elseif vel > 200 then bleedInterval = bleedInterval * 0.3 end
+                if CurTime()-w.lastBleed > bleedInterval then
                     w.lastBleed = CurTime()
                     -- Небольшой брызг из раны
                     local pos = ent:GetPos()+Vector(0,0,40)+VectorRand()*10
                     if ent:IsPlayer() then pos = ent:GetPos()+Vector(0,0,40) end
                     SendBloodImpact(pos, Vector(0,0,-1), Vector(0,0,1), w.severity*5, "generic", w.hitgroup, ent, ent)
+                    -- Отправляем каплю с раны на клиент (для визуального эффекта на модели)
+                    local rec={}
+                    for _,ply in ipairs(player.GetAll()) do if ply:GetPos():DistToSqr(ent:GetPos())<16000000 then table.insert(rec,ply) end end
+                    if #rec>0 then
+                        net.Start("RB_WoundDrip")
+                            net.WriteEntity(ent)
+                            net.WriteUInt(w.hitgroup,8)
+                            net.WriteFloat(w.severity)
+                            net.WriteBool(w.isArtery)
+                        net.Send(rec)
+                    end
                 end
             end
         end
@@ -473,7 +500,23 @@ function HandleEntityDeath(victim,pos,isNonLethal)
     net.Send(recipients)
 end
 
-hook.Add("PostPlayerDeath","RB_PostPlayerDeath",function(ply) HandleEntityDeath(ply,ply:GetPos()) end)
+hook.Add("PostPlayerDeath","RB_PostPlayerDeath",function(ply)
+    HandleEntityDeath(ply,ply:GetPos())
+    -- Смертельное кровотечение: кровь продолжает течь из трупа
+    local cfg=RB.GetConfig()
+    if cfg.enabled and cfg.corpseBlood then
+        local col = RB.GetBloodColorForEntity(ply,false)
+        local rec={}
+        for _,p in ipairs(player.GetAll()) do if p:GetPos():DistToSqr(ply:GetPos())<16000000 then table.insert(rec,p) end end
+        if #rec>0 then
+            net.Start("RB_DeathBloodFlow")
+                net.WriteEntity(ply)
+                net.WriteVector(ply:GetPos())
+                net.WriteUInt(col.r,8) net.WriteUInt(col.g,8) net.WriteUInt(col.b,8)
+            net.Send(rec)
+        end
+    end
+end)
 hook.Add("OnNPCKilled","RB_OnNPCKilled",function(npc,_,_) timer.Simple(0.2,function() if IsValid(npc) then HandleEntityDeath(npc,npc:GetPos()+Vector(0,0,5)) end end) end)
 hook.Add("PostEntityTakeDamage","RB_PostTakeDmgCheck",function(ent,dmginfo,taken) if taken and ent:Health()<=0 then if not ent.RB_PuddleCreated then ent.RB_PuddleCreated=true timer.Simple(0.2,function() if IsValid(ent) then HandleEntityDeath(ent,ent:GetPos()) end end) end end end)
 hook.Add("PlayerSpawn","RB_PlayerSpawnReset",function(ply) ply.RB_PuddleCreated=false RB.BleedingEntities[ply]=nil RB.LastHitGroup[ply]=nil RB.Wounds[ply]=nil RB.BleedDamageNext[ply]=nil end)
@@ -595,4 +638,4 @@ concommand.Add("rb_wounds",function(ply)
     end
 end)
 
-print("[Realistic Blood] Server v1.2 MEGA загружен")
+print("[Realistic Blood] Server v1.3 REALISTIC загружен - реалистичное кровотечение, движение влияет на кровопотерю")
